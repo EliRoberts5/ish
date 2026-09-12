@@ -1,42 +1,110 @@
 name: Build iOS App
 
 on:
-  workflow_dispatch: # Allows you to manually click "Run" in your browser
+  workflow_dispatch:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
 
 jobs:
-  build:
-    runs-on: macos-15 # Uses an actual Apple cloud server running Xcode
+  build-ios:
+    name: iOS .ipa build
+    runs-on: macos-15
+    timeout-minutes: 90
+
+    env:
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
-      - name: Set up Xcode Version
-        run: sudo xcode-select -s /Applications/Xcode_16.0.app # Adjust to the version the project needs
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
 
-      - name: Resolve Dependencies
+      - name: Set up Python 3
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Meson and build tools
+        shell: bash
         run: |
-          if [ -f "Podfile" ]; then pod install; fi
-          xcodebuild -resolvePackageDependencies
+          python3 -m pip install --upgrade pip setuptools wheel
+          python3 -m pip install meson ninja
+          brew install libarchive llvm lld || true
 
-      - name: Build Xcode Project (Unsigned for Testing/Simulator)
+      - name: Select Xcode version
+        shell: bash
         run: |
-          xcodebuild -project iSH.xcodeproj \
-                     -scheme "iSH" \
-                     -configuration Release \
-                     -sdk iphoneos \
-                     CODE_SIGNING_ALLOWED=NO \
-                     ONLY_ACTIVE_ARCH=NO \
-                     clean build
+          set -euxo pipefail
+          for xcode in \
+            "/Applications/Xcode_16.4.app/Contents/Developer" \
+            "/Applications/Xcode_16.3.app/Contents/Developer" \
+            "/Applications/Xcode_16.2.app/Contents/Developer" \
+            "/Applications/Xcode_16.1.app/Contents/Developer" \
+            "/Applications/Xcode_16.0.app/Contents/Developer" \
+            "/Applications/Xcode.app/Contents/Developer"; do
+            if [ -d "$xcode" ]; then
+              sudo xcode-select -switch "$xcode"
+              xcodebuild -version
+              exit 0
+            fi
+          done
+          echo "No usable Xcode found on runner" >&2
+          exit 1
 
-      - name: Package into IPA
+      - name: Resolve Xcode dependencies
+        shell: bash
         run: |
+          set -euxo pipefail
+          if [ -f Podfile ]; then
+            pod install --repo-update || pod install
+          fi
+          xcodebuild -resolvePackageDependencies -project iSH.xcodeproj
+
+      - name: Build unsigned iOS app
+        shell: bash
+        run: |
+          set -euxo pipefail
+          xcodebuild \
+            -project iSH.xcodeproj \
+            -scheme "iSH" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            DEVELOPMENT_TEAM="" \
+            PRODUCT_BUNDLE_IDENTIFIER="app.ish.build" \
+            ONLY_ACTIVE_ARCH=NO \
+            clean build
+
+      - name: Package .ipa artifact
+        shell: bash
+        run: |
+          set -euxo pipefail
+          APP_PATH=$(find build/DerivedData -path '*/Build/Products/Release-iphoneos/*.app' | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app bundle was produced by xcodebuild" >&2
+            find build/DerivedData -maxdepth 10 -iname '*.app' | head -50 >&2 || true
+            exit 1
+          fi
+
           mkdir -p payload/Payload
-          mv build/Release-iphoneos/*.app payload/Payload/
-          cd payload && zip -r ../app-unsigned.ipa Payload
+          cp -R "$APP_PATH" payload/Payload/
+          cd payload
+          zip -qr ../iSH-unsigned.ipa Payload
 
-      - name: Upload Finished App Package
+      - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: ios-app
-          path: app-unsigned.ipa
+          name: iSH-unsigned-ipa
+          path: iSH-unsigned.ipa
+          if-no-files-found: error
