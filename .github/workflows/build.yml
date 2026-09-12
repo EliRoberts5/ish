@@ -21,8 +21,8 @@ jobs:
 
       - name: Build Xcode Project (Unsigned for Testing/Simulator)
         run: |
-          xcodebuild -project *.xcodeproj \
-                     -scheme "YourSchemeName" \
+          xcodebuild -project iSH.xcodeproj \
+                     -scheme "iSH" \
                      -configuration Release \
                      -sdk iphoneos \
                      CODE_SIGNING_ALLOWED=NO \
