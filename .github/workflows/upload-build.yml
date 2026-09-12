@@ -7,7 +7,7 @@ on:
 
 jobs:
   upload-build:
-    if: github.repository == '/ish'
+    if: github.repository == 'ish'
     runs-on: macos-14
     timeout-minutes: 720
     steps:
