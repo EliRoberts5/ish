@@ -15,6 +15,12 @@ jobs:
 
     env:
       DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+      APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_BUNDLE_ID: ${{ secrets.APPLE_BUNDLE_ID }}
+      KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
 
     steps:
       - name: Checkout repository
@@ -68,7 +74,48 @@ jobs:
           fi
           xcodebuild -resolvePackageDependencies -project iSH.xcodeproj
 
+      - name: Import Apple signing certificate and profile
+        if: ${{ env.APPLE_CERTIFICATE_BASE64 != '' && env.APPLE_PROVISIONING_PROFILE_BASE64 != '' && env.APPLE_TEAM_ID != '' && env.APPLE_BUNDLE_ID != '' }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          KEYCHAIN_PASSWORD="${KEYCHAIN_PASSWORD:-temporary-keychain-password}"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | sed 's/"//g')
+
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > certificate.p12
+          security import certificate.p12 -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A
+
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          echo "$APPLE_PROVISIONING_PROFILE_BASE64" | base64 --decode > profile.mobileprovision
+          cp profile.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/profile.mobileprovision"
+
+      - name: Build signed iOS app
+        if: ${{ env.APPLE_CERTIFICATE_BASE64 != '' && env.APPLE_PROVISIONING_PROFILE_BASE64 != '' && env.APPLE_TEAM_ID != '' && env.APPLE_BUNDLE_ID != '' }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          xcodebuild \
+            -project iSH.xcodeproj \
+            -scheme "iSH" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build/DerivedData \
+            -allowProvisioningUpdates \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGNING_REQUIRED=YES \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            PRODUCT_BUNDLE_IDENTIFIER="$APPLE_BUNDLE_ID" \
+            ONLY_ACTIVE_ARCH=NO \
+            clean build
+
       - name: Build unsigned iOS app
+        if: ${{ env.APPLE_CERTIFICATE_BASE64 == '' || env.APPLE_PROVISIONING_PROFILE_BASE64 == '' || env.APPLE_TEAM_ID == '' || env.APPLE_BUNDLE_ID == '' }}
         shell: bash
         run: |
           set -euxo pipefail
@@ -104,6 +151,6 @@ jobs:
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: iSH-unsigned-ipa
+          name: ${{ env.APPLE_CERTIFICATE_BASE64 != '' && env.APPLE_PROVISIONING_PROFILE_BASE64 != '' && env.APPLE_TEAM_ID != '' && env.APPLE_BUNDLE_ID != '' && 'iSH-signed-ipa' || 'iSH-unsigned-ipa' }}
           path: iSH-unsigned.ipa
           if-no-files-found: error
