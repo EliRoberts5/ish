@@ -143,14 +143,20 @@ jobs:
             exit 1
           fi
 
+          if [[ -n "$APPLE_CERTIFICATE_BASE64" && -n "$APPLE_PROVISIONING_PROFILE_BASE64" && -n "$APPLE_TEAM_ID" && -n "$APPLE_BUNDLE_ID" ]]; then
+            IPA_NAME="iSH-signed.ipa"
+          else
+            IPA_NAME="iSH-unsigned.ipa"
+          fi
+
           mkdir -p payload/Payload
           cp -R "$APP_PATH" payload/Payload/
           cd payload
-          zip -qr ../iSH-unsigned.ipa Payload
+          zip -qr "../$IPA_NAME" Payload
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.APPLE_CERTIFICATE_BASE64 != '' && env.APPLE_PROVISIONING_PROFILE_BASE64 != '' && env.APPLE_TEAM_ID != '' && env.APPLE_BUNDLE_ID != '' && 'iSH-signed-ipa' || 'iSH-unsigned-ipa' }}
-          path: iSH-unsigned.ipa
+          path: ${{ env.APPLE_CERTIFICATE_BASE64 != '' && env.APPLE_PROVISIONING_PROFILE_BASE64 != '' && env.APPLE_TEAM_ID != '' && env.APPLE_BUNDLE_ID != '' && 'iSH-signed.ipa' || 'iSH-unsigned.ipa' }}
           if-no-files-found: error
