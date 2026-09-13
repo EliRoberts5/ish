@@ -13,6 +13,34 @@ Add these repository secrets in GitHub:
 - APPLE_BUNDLE_ID
 - KEYCHAIN_PASSWORD
 
+### App Store Connect API key (for TestFlight uploads)
+
+To automatically upload to TestFlight from GitHub Actions you can use an App Store Connect API key. Add this repository secret:
+
+- `APP_STORE_CONNECT_API_KEY_BASE64`
+
+How to generate the secret:
+
+1. In App Store Connect go to Users and Access → Keys and create a new API Key with "App Manager" or the minimum required privileges.
+2. Download the key file (AuthKey_XXXXXX.p8). Note the Key ID and Issuer ID shown in App Store Connect.
+3. Create a small JSON file named `appstoreconnect_key.json` with the following structure:
+
+```json
+{
+	"key_id": "YOUR_KEY_ID",
+	"issuer_id": "YOUR_ISSUER_ID",
+	"key": "-----BEGIN PRIVATE KEY-----\n...contents of the .p8 file...\n-----END PRIVATE KEY-----\n"
+}
+```
+
+4. Base64-encode the JSON and add it as the `APP_STORE_CONNECT_API_KEY_BASE64` repository secret:
+
+```bash
+base64 -i appstoreconnect_key.json | tr -d '\n'
+```
+
+The workflow will decode this secret and use Fastlane to upload the signed `.ipa` to TestFlight.
+
 ## How to generate the values
 
 ### 1. Create or select an Apple Developer account

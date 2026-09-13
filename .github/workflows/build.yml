@@ -20,6 +20,7 @@ jobs:
       APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       APPLE_BUNDLE_ID: ${{ secrets.APPLE_BUNDLE_ID }}
+      APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
       KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
 
     steps:
@@ -153,6 +154,22 @@ jobs:
           cp -R "$APP_PATH" payload/Payload/
           cd payload
           zip -qr "../$IPA_NAME" Payload
+
+      - name: Upload to TestFlight
+        if: ${{ env.APP_STORE_CONNECT_API_KEY_BASE64 != '' && env.APPLE_CERTIFICATE_BASE64 != '' && env.APPLE_PROVISIONING_PROFILE_BASE64 != '' }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          gem install fastlane -N || true
+          echo "$APP_STORE_CONNECT_API_KEY_BASE64" | base64 --decode > appstoreconnect_key.json
+          export APP_STORE_CONNECT_API_KEY_PATH="$PWD/appstoreconnect_key.json"
+
+          if [ -f ./iSH-signed.ipa ]; then
+            fastlane pilot upload -i ./iSH-signed.ipa --team_id "$APPLE_TEAM_ID" || fastlane pilot upload -i ./iSH-signed.ipa --skip_waiting_for_build_processing
+          else
+            echo "Signed IPA not found, skipping TestFlight upload" >&2
+            exit 1
+          fi
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
